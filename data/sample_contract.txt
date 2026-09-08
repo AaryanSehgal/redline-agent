@@ -1,0 +1,48 @@
+SUPPLY AND SERVICES AGREEMENT
+
+This Agreement is made between Northwind Pty Ltd (the "Client") and
+Cobalt Systems Pty Ltd (the "Supplier").
+
+ARTICLE III - PAYMENT
+
+3.1 Payment Terms. The Client shall pay all undisputed invoices within thirty
+(30) days of receipt. Payment obligations under this clause are subject to
+clause 14.2.
+
+3.2 Late Payment. Interest accrues on overdue amounts at 2% per month,
+compounding monthly, from the due date until payment is received in full.
+
+ARTICLE VII - LIABILITY
+
+7.4 Limitation of Liability. Notwithstanding any other provision of this
+Agreement, the Supplier's total aggregate liability arising out of or in
+connection with this Agreement shall not exceed the fees paid by the Client
+in the three (3) months immediately preceding the event giving rise to the
+claim. This clause does not limit liability under clause 12.3.
+
+ARTICLE IX - TERM AND TERMINATION
+
+9.1 Termination for Convenience. The Supplier may terminate this Agreement at
+any time on fourteen (14) days written notice to the Client, without cause and
+without liability, subject to clause 7.4.
+
+9.2 Termination for Breach. Either party may terminate immediately on written
+notice if the other party commits a material breach that is not remedied
+within ten (10) business days.
+
+ARTICLE XII - INDEMNITY
+
+12.3 Indemnity. The Client shall indemnify, defend and hold harmless the
+Supplier against any and all claims, losses, damages and expenses arising from
+the Client's use of the deliverables, howsoever caused, including where such
+claims arise in part from the Supplier's own negligence.
+
+ARTICLE XIV - DISPUTES
+
+14.2 Disputed Invoices. Where the Client disputes an invoice in good faith and
+notifies the Supplier in writing within ten (10) business days of receipt, the
+payment obligation in clause 3.1 is suspended in respect of the disputed
+amount pending resolution.
+
+14.5 Governing Law. This Agreement is governed by the laws of New South Wales,
+Australia, and the parties submit to the exclusive jurisdiction of its courts.
