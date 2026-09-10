@@ -3,9 +3,11 @@
 from langgraph.graph import END, START, StateGraph
 
 from redline.core import divergence_score, most_divergent, reference_counts
-from redline.llm import read_both_sides
+from redline.llm import read_both_sides, read_all_async
 from redline.parser import parse
 from redline.state import ReviewState
+
+import asyncio
 
 THRESHOLD = 0.3
 MAX_ROUNDS = 2
@@ -19,7 +21,7 @@ def parse_node(state: ReviewState) -> dict:
 
 def read_node(state: ReviewState) -> dict:
     """Read every clause from both sides."""
-    readings = [read_both_sides(c) for c in state["clauses"]]
+    readings = asyncio.run(read_all_async(state["clauses"]))
     return {"readings": readings}
 
 
@@ -132,12 +134,21 @@ def build_graph():
 
 
 if __name__ == "__main__":
+    import json
+    import time
+
     with open("data/sample_contract.txt", encoding="utf-8") as f:
         text = f.read()
 
     graph = build_graph()
+
+    started = time.time()
     final = graph.invoke(
         {"contract_text": text, "rounds": 0},
         config={"recursion_limit": 25},
     )
-    print(final["report"])
+    elapsed = time.time() - started
+
+    print(f"\ncompleted in {elapsed:.1f}s")
+    print(f"rounds: {final['rounds']}   resolved: {final['resolved']}")
+    print(json.dumps(final["report"], indent=2))
