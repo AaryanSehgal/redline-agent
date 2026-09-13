@@ -19,11 +19,11 @@ Built in the open. What works is genuinely working; what doesn't is listed rathe
 - **Concurrent API calls with bounded concurrency** — 50s → 21s, capped by a semaphore
 - Identifies load-bearing clauses (those other clauses depend on)
 - Retries failed calls with exponential backoff
+- **Evaluation harness against CUAD** — 13,155 attorney-labelled clauses, stratified sampling, fixed seed, confusion matrix and threshold sweep
 
 **Not built yet**
 
-- Persistence (SQLite) and cross-contract reporting
-- Evaluation against CUAD's attorney-labelled clauses — **there is no accuracy number yet**
+- Persistence and cross-contract reporting
 - The full obligation graph
 - Automated tests
 - Web interface, Docker, deployment
@@ -141,16 +141,37 @@ python -m redline.graph
 
 ---
 
+## Evaluation
+
+A demo you chose yourself is an anecdote. So REDLINE is scored against **CUAD** — the Contract Understanding Atticus Dataset, 13,155 clauses across 41 categories, labelled by supervising attorneys.
+
+The harness (`evaluate.py`, `score_eval.py`, `analyse_eval.py`) does the full job:
+
+- **Stratified sampling** — equal clauses per category, so a 2,560-row category can't drown a 36-row one
+- **Fixed seed** — same sample every run, so a change in score means a change in the system and not in the questions
+- **Length filtering** — CUAD spans include metadata fragments like party names; those are excluded so the test isn't trivially easy
+- **Confusion matrix and threshold sweep** — precision, recall and F1 at 19 operating points, against the majority-class baseline
+
+Following the framing in [ContractEval](https://arxiv.org/abs/2508.03080) (2025), the first benchmark for clause-level legal risk identification, which also builds on CUAD.
+
+**Current finding.** The v1 prompts name "Client" and "Supplier". Real contracts use their own defined terms — `Licensor`, `Distributor`, `Rogers` — so on CUAD clauses neither agent has a side to take and divergence compresses toward zero. The next iteration extracts the party names from each clause and instantiates the two symmetric prompts with them, then re-runs against the identical saved eval set. One variable changed, everything else held.
+
+That finding only exists because the harness does. It's the reason to build evaluation before claiming a number.
+
+Worth noting: [ACORD](https://arxiv.org/abs/2501.06582) (ACL 2025), also expert-annotated, reports a **21% disagreement rate between its own legal annotators** — independent evidence that experts read the same clause differently one time in five. That is the premise REDLINE is built on.
+
+---
+
 ## Known limitations
 
 Stated plainly, because a tool that hides its failure modes is worse than one that names them.
 
-- **Not evaluated.** No accuracy number exists. Until it is scored against CUAD's attorney labels, "it found a real indemnity problem" is an anecdote, not evidence. This is the most important gap.
+- **No headline accuracy number yet.** The harness is live; prompt iteration is in progress (above).
 - **Output varies between runs.** Clause 3.2 was flagged on one run and not another. Severity scores are model judgements, not measurements, and they move. Any production use needs either a fixed seed, multiple samples, or a confidence band.
 - **Plain text only.** No PDF or DOCX. Real contracts arrive as PDFs.
 - **One numbering format.** Clauses must be `N.N` at the start of a line. `Section 3.1`, `ARTICLE III`, and `(a)/(b)` sub-clauses are not handled.
 - **Headings must be inline** with the body, ending at the first full stop.
-- **One resolution round by default.** Deeper cross-reference chains aren't followed.
+- **Cross-reference resolution is depth-1.** If clause 9.1 references 7.4, and 7.4 references 12.3, only 7.4 is pulled in. The `resolved` guard that makes the cycle terminate is also what caps its depth — a deliberate trade of completeness for a termination guarantee. The fix is a transitive closure with a cycle guard, which the sample contract needs anyway: 3.1 and 14.2 reference each other.
 - **No tests.**
 - **Not legal advice.** This surfaces clauses worth a human's attention. It does not replace one.
 
@@ -158,11 +179,11 @@ Stated plainly, because a tool that hides its failure modes is worse than one th
 
 ## Roadmap
 
-1. SQLite persistence and cross-contract queries
-2. Evaluation against CUAD — precision and recall against attorney labels
-3. Obligation graph: who owes what, to whom, by when, conditional on what
-4. Cost routing: a fine-tuned classifier handles routine clauses, the model pair handles only contested ones
-5. Async resolution node, tests, Docker, deployment
+1. Party-neutral prompts, re-scored against the saved eval set
+2. Obligation graph: who owes what, to whom, by when, conditional on what
+3. Cost routing: a fine-tuned classifier handles routine clauses, the model pair handles only contested ones
+4. Transitive cross-reference closure with a cycle guard
+5. Tests, Streamlit interface, Docker, deployment
 
 ---
 

@@ -1,10 +1,13 @@
+@"
 .venv/
 __pycache__/
+.pytest_cache/
 *.pyc
 .env
 *.db
 .DS_Store
+layer0_core.py
+
 data/*
 !data/sample_contract.txt
-
-layer0_core.py
+"@ | Set-Content .gitignore
