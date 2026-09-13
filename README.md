@@ -2,82 +2,75 @@
 
 **Two AI agents read the same contract clause with opposite interests. Where they disagree, that's your risk.**
 
-Most contract-review tools score clauses for risk. REDLINE scores clauses for **disagreement** — because the clauses that cause disputes aren't the obviously dangerous ones, they're the ones where two competent readers walk away with different pictures of the deal.
+Most contract tools score clauses for danger. REDLINE scores them for *disagreement*.
+
+The idea came from reading commercial terms in a sales job and noticing that the clauses causing arguments were rarely the scary-looking ones. They were the clauses where both sides had read the same words and walked away with a different understanding of the deal. That's what this looks for.
 
 ---
 
-## Status: in progress
+## Status
 
-Built in the open. What works is genuinely working; what doesn't is listed rather than hidden.
+Working, in active development.
 
 **Working now**
 
 - Parses plain-text contracts into structured clauses with cross-references
-- Reads every clause twice — as the Client and as the Supplier — using structurally identical prompts
-- Scores divergence between the two readings and ranks clauses by it
-- **LangGraph orchestration with a cross-reference resolution cycle** — when a flagged clause depends on a clause the model never saw, the graph loops back, attaches it, and re-judges
-- **Concurrent API calls with bounded concurrency** — 50s → 21s, capped by a semaphore
-- Identifies load-bearing clauses (those other clauses depend on)
-- Retries failed calls with exponential backoff
-- **Evaluation harness against CUAD** — 13,155 attorney-labelled clauses, stratified sampling, fixed seed, confusion matrix and threshold sweep
+- Reads each clause twice, once as the Client and once as the Supplier, using identical prompts
+- Scores divergence between the two readings and ranks clauses
+- LangGraph orchestration with a working cycle: when a flagged clause depends on a clause the model hasn't seen, the graph fetches it and re-judges
+- Concurrent API calls with a semaphore cap. 50s down to 21.3s
+- Test suite for the scoring logic, runs with no API key
+- Evaluation harness scoring the system against CUAD's attorney-labelled clauses
 
-**Not built yet**
+**Not yet**
 
+- Obligation graph
 - Persistence and cross-contract reporting
-- The full obligation graph
-- Automated tests
 - Web interface, Docker, deployment
 
 ---
 
 ## What it found
 
-Sample supply agreement, 8 clauses, 21 seconds, one resolution round.
+Sample supply agreement. 8 clauses, 21 seconds, one resolution round.
 
-### Clause 12.3 — Indemnity. Divergence 1.00, the maximum.
+### Clause 12.3, Indemnity. Divergence 1.00, the maximum.
 
-> **Client — severity 1.00:** *"Client must indemnify Supplier even for the Supplier's own negligence, creating unlimited liability for the Client including for harm the Supplier causes."*
+> **Client, severity 1.00:** *"Client must indemnify Supplier even for the Supplier's own negligence, creating unlimited liability for the Client including for harm the Supplier causes."*
 >
-> **Supplier — severity 0.00:** *"This clause requires the Client to indemnify the Supplier even when claims arise partly from the Supplier's own negligence, which is highly favorable protection for the Supplier."*
+> **Supplier, severity 0.00:** *"This clause requires the Client to indemnify the Supplier even when claims arise partly from the Supplier's own negligence, which is highly favorable protection for the Supplier."*
 
-Same words. One side says *do not sign*, the other says *no danger at all*. Both descriptions are accurate. A conventional risk scorer labels this "indemnity clause, medium risk" and moves on.
+Same words. One side says don't sign it, the other says it's fine. Both descriptions are accurate. A risk scorer would call this "indemnity clause, medium risk" and move on.
 
-### Clause 14.2 — Disputed Invoices. Divergence 0.70, pointing the other way.
+### Clause 14.2, Disputed Invoices. Divergence 0.70, and it points the other way.
 
-Client 0.00, Supplier 0.70. Here the **Supplier** is the exposed party — the clause lets the Client suspend payment indefinitely on a good-faith dispute with no resolution deadline. REDLINE is not a client advocate; it reads both sides.
+Client 0.00, Supplier 0.70. Here the Supplier is the exposed party, because the clause lets the Client suspend payment indefinitely on a good-faith dispute with no deadline. The system reads both sides, not just the buyer's.
 
-### Clause 3.2 — Late Payment. Divergence 0.40.
+### Clause 3.2, Late Payment. Divergence 0.40.
 
-Both agents independently converted "2% per month, compounding" into an effective annual rate of ~26.8%, then disagreed about whether that is punitive or merely commercial.
+Both agents worked out that 2% per month compounding is about 26.8% a year, then disagreed about whether that's punitive or just commercial.
 
 ---
 
-## Why this needs a graph, not a chain
+## Why it needs a graph and not a chain
 
-On the first run — before any graph code existed — both agents said this about clause 9.1, unprompted:
+On the very first run, before I'd written any graph code, both agents said this about clause 9.1 without being asked:
 
 > *"...though clause 7.4 (which I cannot see) may impose conditions that could change this assessment."*
 
-Contracts are written as lists but they don't work as lists. Clause 3.1 says pay within 30 days — clause 14.2 suspends that obligation if the invoice is disputed. Judge 3.1 alone and you get the wrong answer.
+Contracts are written as lists but they don't work like lists. Clause 3.1 says pay within 30 days. Clause 14.2 suspends that if the invoice is disputed. Judge 3.1 on its own and you get the wrong answer.
 
-So the system has to notice the missing cross-reference, fetch it, and re-judge. That is a **cycle**, which is why the orchestration layer is LangGraph rather than a linear chain.
+So the system has to spot the missing reference, go and get it, and judge again. That's a cycle, which is why the orchestration is LangGraph rather than a linear chain.
 
-### The same clause, after the cycle
+**The same clause after the cycle ran:**
 
 > *"The Supplier can unilaterally terminate without cause on only 14 days notice, giving the Client virtually no protection against sudden service disruption, **while the liability cap in clause 7.4 means the Client cannot recover damages beyond three months of fees even if termination causes substantial harm.**"*
 
-It didn't just read 7.4 — it reasoned about how the two clauses **compound**. Free termination plus a capped remedy is a materially worse position than either clause suggests alone, and that is invisible to any system reviewing clauses one at a time.
+It didn't just read 7.4. It worked out how the two clauses stack. Free termination plus a capped remedy is worse than either clause looks alone, and nothing reviewing clauses one at a time would catch it.
 
-**The divergence score stayed at 0.90.** Resolution didn't change the number, it changed the quality of the reasoning — the Client's alarm was correct all along, and is now grounded in a specific figure instead of a hedge.
+The divergence score stayed at 0.90. The number didn't move, the reasoning got grounded.
 
-### How the cycle terminates
-
-Two independent stops, deliberately:
-
-1. **Logical** — a `resolved` list in the graph state. A clause passes through resolution once and is then skipped.
-2. **Structural** — `MAX_ROUNDS` in the router, plus LangGraph's `recursion_limit=25`.
-
-The second exists in case the first has a hole.
+**How the loop stops.** Two ways, on purpose. A `resolved` list means each clause goes through resolution once. `MAX_ROUNDS` and LangGraph's `recursion_limit=25` are the backstop in case the first one has a hole.
 
 ---
 
@@ -85,11 +78,11 @@ The second exists in case the first has a hole.
 
 | | Before | After |
 |---|---|---|
-| 8 clauses, 16-20 API calls | ~50s | **21.3s** |
+| 8 clauses, ~20 API calls | 50s | **21.3s** |
 
-Concurrency uses `asyncio.gather` behind an `asyncio.Semaphore` capped at 5 concurrent clauses. Unbounded `gather` over a 200-clause contract would fire 400 simultaneous requests, trip rate limits, and trigger every retry at once — a self-inflicted thundering herd.
+`asyncio.gather` behind an `asyncio.Semaphore(5)`. The cap matters: unbounded gather on a 200-clause contract fires 400 requests at once, trips rate limits, then fires every retry simultaneously. That's a thundering herd you've built yourself.
 
-**Known remaining bottleneck:** the resolution node still calls the synchronous reader, so re-reads run sequentially. Roughly 13 of the 21 seconds. Converting it should land the run near 12s.
+Still sequential inside the resolution node, which is roughly 13 of those 21 seconds. Next thing to fix.
 
 ---
 
@@ -97,28 +90,42 @@ Concurrency uses `asyncio.gather` behind an `asyncio.Semaphore` capped at 5 conc
 
 ```
 contract.txt
-     │
-     ▼
-  parser.py     splits text into clauses, extracts cross-references
-     │
-     ▼
-  graph.py      LangGraph: parse → read → check ⇄ resolve → report
-     │              │                        └── cycle ──┘
-     ▼              ▼
+     |
+  parser.py     splits text into clauses, pulls out cross-references
+     |
+  graph.py      LangGraph: parse -> read -> check <-> resolve -> report
+     |                                       \___ cycle ___/
    llm.py       each clause read twice, opposed prompts, concurrent
-     │
-     ▼
+     |
   core.py       divergence scoring, ranking, reference counting
-     │
-     ▼
+     |
   ranked risk report
 ```
 
-Each module does one transformation. `parser.py` never calls a model. `llm.py` never does arithmetic. `core.py` never touches the network — so the scoring logic runs and can be tested with no API key at all.
+One job per module. `parser.py` never calls a model, `llm.py` never does maths, `core.py` never touches the network. That last one is why the tests run without an API key.
 
-### Design note: prompt symmetry
+**On prompt symmetry:** the two system prompts are word for word identical except for the party named. If one were longer or more leading, the divergence score would be measuring the prompts rather than the parties, and the whole idea falls over.
 
-The two system prompts are word-for-word identical except for the party named. If one were longer or more leading than the other, the divergence score would measure *prompt asymmetry* rather than genuine disagreement between the parties, and the premise would collapse.
+---
+
+## Evaluation
+
+A demo you picked yourself is an anecdote, so I built a harness to score the system against **CUAD**, the Contract Understanding Atticus Dataset: 13,155 clauses across 41 categories, labelled by supervising attorneys.
+
+`evaluate.py`, `score_eval.py` and `analyse_eval.py` do the work:
+
+- Stratified sampling, equal clauses per category, so a 2,560-row category can't drown a 36-row one
+- Fixed seed, so the sample regenerates identically and a change in score means the system changed and not the questions
+- Length filtering, because CUAD spans include metadata fragments like party names and those would make the test trivially easy
+- Confusion matrix and threshold sweep, precision/recall/F1 at 19 operating points against the majority-class baseline
+
+Framing follows [ContractEval](https://arxiv.org/abs/2508.03080) (2025), the first benchmark for clause-level legal risk identification, which also builds on CUAD.
+
+**Where it's at.** The v1 prompts name "Client" and "Supplier". Real contracts use their own defined terms, `Licensor`, `Distributor`, `Rogers`, so on CUAD clauses neither agent has a side to take and the divergence scores compress. Next version extracts the party names from each clause and fills the two symmetric prompts with them, then re-runs against the same seeded eval set. One variable changed, everything else held.
+
+I only know that because the harness exists. That's the argument for building evaluation before quoting a number.
+
+Worth noting: [ACORD](https://arxiv.org/abs/2501.06582) (ACL 2025), also expert-annotated, reports a **21% disagreement rate between its own legal annotators**. Independent evidence that experts read the same clause differently about one time in five, which is the premise this whole thing rests on.
 
 ---
 
@@ -133,61 +140,34 @@ python -m venv .venv
 source .venv/bin/activate       # macOS / Linux
 
 pip install -r requirements.txt
+cp .env.example .env            # add your Anthropic API key
 
-cp .env.example .env            # then add your Anthropic API key
-
-python -m redline.graph
+python -m redline.graph         # review the sample contract
+python -m pytest -v             # tests, no API key needed
 ```
 
 ---
 
-## Evaluation
+## Limitations
 
-A demo you chose yourself is an anecdote. So REDLINE is scored against **CUAD** — the Contract Understanding Atticus Dataset, 13,155 clauses across 41 categories, labelled by supervising attorneys.
-
-The harness (`evaluate.py`, `score_eval.py`, `analyse_eval.py`) does the full job:
-
-- **Stratified sampling** — equal clauses per category, so a 2,560-row category can't drown a 36-row one
-- **Fixed seed** — same sample every run, so a change in score means a change in the system and not in the questions
-- **Length filtering** — CUAD spans include metadata fragments like party names; those are excluded so the test isn't trivially easy
-- **Confusion matrix and threshold sweep** — precision, recall and F1 at 19 operating points, against the majority-class baseline
-
-Following the framing in [ContractEval](https://arxiv.org/abs/2508.03080) (2025), the first benchmark for clause-level legal risk identification, which also builds on CUAD.
-
-**Current finding.** The v1 prompts name "Client" and "Supplier". Real contracts use their own defined terms — `Licensor`, `Distributor`, `Rogers` — so on CUAD clauses neither agent has a side to take and divergence compresses toward zero. The next iteration extracts the party names from each clause and instantiates the two symmetric prompts with them, then re-runs against the identical saved eval set. One variable changed, everything else held.
-
-That finding only exists because the harness does. It's the reason to build evaluation before claiming a number.
-
-Worth noting: [ACORD](https://arxiv.org/abs/2501.06582) (ACL 2025), also expert-annotated, reports a **21% disagreement rate between its own legal annotators** — independent evidence that experts read the same clause differently one time in five. That is the premise REDLINE is built on.
+- **Plain text only.** No PDF or DOCX. Real contracts turn up as PDFs.
+- **One numbering format.** Clauses have to be `N.N` at the start of a line. `Section 3.1`, `ARTICLE III` and `(a)/(b)` sub-clauses aren't handled.
+- **Headings must be inline** with the clause body, ending at the first full stop.
+- **Cross-reference resolution is depth-1.** If 9.1 points at 7.4 and 7.4 points at 12.3, only 7.4 gets pulled in. The `resolved` guard that makes the cycle terminate is also what caps its depth. Fix is a transitive closure with a cycle guard, which the sample contract needs anyway since 3.1 and 14.2 reference each other.
+- **Output moves between runs.** Clause 3.2 was flagged on one run and not another. Severity scores are model judgements, not measurements. Production use would need a fixed seed, repeated sampling, or confidence bands.
+- **No headline accuracy figure yet.** Harness is live, prompt iteration in progress, see above.
+- **Not legal advice.** It surfaces clauses worth a human's attention. It doesn't replace one.
 
 ---
 
-## Known limitations
-
-Stated plainly, because a tool that hides its failure modes is worse than one that names them.
-
-- **No headline accuracy number yet.** The harness is live; prompt iteration is in progress (above).
-- **Output varies between runs.** Clause 3.2 was flagged on one run and not another. Severity scores are model judgements, not measurements, and they move. Any production use needs either a fixed seed, multiple samples, or a confidence band.
-- **Plain text only.** No PDF or DOCX. Real contracts arrive as PDFs.
-- **One numbering format.** Clauses must be `N.N` at the start of a line. `Section 3.1`, `ARTICLE III`, and `(a)/(b)` sub-clauses are not handled.
-- **Headings must be inline** with the body, ending at the first full stop.
-- **Cross-reference resolution is depth-1.** If clause 9.1 references 7.4, and 7.4 references 12.3, only 7.4 is pulled in. The `resolved` guard that makes the cycle terminate is also what caps its depth — a deliberate trade of completeness for a termination guarantee. The fix is a transitive closure with a cycle guard, which the sample contract needs anyway: 3.1 and 14.2 reference each other.
-- **No tests.**
-- **Not legal advice.** This surfaces clauses worth a human's attention. It does not replace one.
-
----
-
-## Roadmap
+## Next
 
 1. Party-neutral prompts, re-scored against the saved eval set
 2. Obligation graph: who owes what, to whom, by when, conditional on what
-3. Cost routing: a fine-tuned classifier handles routine clauses, the model pair handles only contested ones
-4. Transitive cross-reference closure with a cycle guard
-5. Tests, Streamlit interface, Docker, deployment
+3. Cost routing, so a fine-tuned classifier handles routine clauses and the model pair only sees contested ones
+4. Transitive cross-reference closure
+5. Streamlit interface, Docker, deployment
 
 ---
 
-## Built by
-
-Aaryan Sehgal — BSc Artificial Intelligence, transitioning into AI engineering.
-Sydney, Australia.
+Built by Aaryan Sehgal. BSc Artificial Intelligence, moving into AI engineering. Sydney.
